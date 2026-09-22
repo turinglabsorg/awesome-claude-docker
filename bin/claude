@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# claude-docker-x86 — https://github.com/turinglabsorg/claude-docker-x86
+# awesome-claude-docker — https://github.com/turinglabsorg/awesome-claude-docker
 #
-# Runs the official Linux build of Claude Code in Docker as if it were native:
+# Runs Claude Code in Docker as if it were native:
 #   - your home is bind-mounted at the SAME path and used as HOME, so Claude
 #     sees your real ~/.claude (CLAUDE.md, skills, settings, memory, history),
 #     ~/.claude.json and everything they reference
@@ -13,7 +13,11 @@
 #   - it runs as your uid/gid, so files it creates are owned by you
 set -euo pipefail
 
-IMAGE="${CLAUDE_DOCKER_IMAGE:-claude-docker-x86:latest}"
+PERSONAL="${CLAUDE_DOCKER_PERSONAL:-$HOME/.claude-docker}"
+# shellcheck disable=SC1091
+[ -f "$PERSONAL/env" ] && . "$PERSONAL/env"
+
+IMAGE="${CLAUDE_DOCKER_IMAGE:-awesome-claude-docker:latest}"
 DOCKER="$(command -v docker 2>/dev/null || echo /usr/local/bin/docker)"
 
 home="$(cd "$HOME" && pwd -P)"
@@ -34,10 +38,55 @@ case "$workdir/" in
         ;;
 esac
 
+# Cloud identity roots never reach the container: each one is covered by an
+# empty, read-only tmpfs, so the home is mounted without them. The Google Cloud
+# config dirs (~/.config/gcloud, and any ~/.config/gcloud-* profile roots) are
+# masked by default; CLAUDE_DOCKER_MASK adds more paths, space-separated.
+masks=()
+for d in "$home"/.config/gcloud "$home"/.config/gcloud-*; do
+    [ -e "$d" ] && masks+=("$d")
+done
+for d in ${CLAUDE_DOCKER_MASK:-}; do
+    case "$d" in /*) ;; *) d="$home/$d" ;; esac
+    masks+=("$d")
+done
+for d in ${masks[@]+"${masks[@]}"}; do
+    args+=(--mount "type=tmpfs,destination=$d,tmpfs-size=1m,tmpfs-mode=0555")
+done
+
 # macOS symlinks /tmp, /var and /etc into /private: also expose the launch
 # folder at the path you typed, so arguments like /tmp/x resolve inside too
 logical="${PWD:-$workdir}"
 [ "$logical" != "$workdir" ] && args+=(-v "$workdir:$logical")
+
+# Opt-in: the host Docker engine, so Claude can run docker and docker compose.
+# Docker Desktop exposes the socket as root:root 660 inside containers.
+# DOCKER_HOST wins over the docker context in the mounted ~/.docker, which on
+# macOS points at a host socket that cannot cross into the container.
+if [ "${CLAUDE_DOCKER_SOCKET:-0}" = 1 ]; then
+    sock_gid=0
+    [ "$(uname -s)" = Darwin ] || sock_gid="$(stat -c %g /var/run/docker.sock)"
+    args+=(-v /var/run/docker.sock:/var/run/docker.sock --group-add "$sock_gid"
+           -e DOCKER_HOST=unix:///var/run/docker.sock)
+fi
+
+# Claude Code settings from the environment pass through by name: docker reads
+# the values from this process, so keys never appear on a command line.
+# A base URL on the host loopback (e.g. set by `ollama launch claude`) is
+# rewritten to host.docker.internal, which reaches the host from inside.
+base_url=""
+if [[ "${ANTHROPIC_BASE_URL:-}" =~ ^(https?://)(localhost|127\.0\.0\.1)([:/].*)?$ ]]; then
+    base_url="${BASH_REMATCH[1]}host.docker.internal${BASH_REMATCH[3]}"
+    args+=(-e "ANTHROPIC_BASE_URL=$base_url")
+fi
+while IFS= read -r name; do
+    [ -n "$base_url" ] && [ "$name" = ANTHROPIC_BASE_URL ] && continue
+    args+=(-e "$name")
+done < <(compgen -e | grep -E '^(ANTHROPIC_|CLAUDE_CODE_|DISABLE_|API_TIMEOUT_MS$|MAX_THINKING_TOKENS$|MCP_(TOOL_)?TIMEOUT$|BASH_(DEFAULT|MAX)_TIMEOUT_MS$|(HTTPS?|NO)_PROXY$|(https?|no)_proxy$)' || true)
+for name in ${CLAUDE_DOCKER_ENV:-}; do
+    args+=(-e "$name")
+done
+[ "$(uname -s)" = Darwin ] || args+=(--add-host=host.docker.internal:host-gateway)
 
 [ -t 0 ] && [ -t 1 ] && args+=(-t)
 

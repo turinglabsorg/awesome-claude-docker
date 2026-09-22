@@ -1,0 +1,22 @@
+# Personal layer — copy to ~/.claude-docker/Dockerfile and edit.
+# install.sh builds it on top of the base image, so your toolset travels with
+# you: keep this file in your dotfiles and rebuild anywhere.
+#
+# Install TOOLS only. Never COPY credentials or config into the image: they
+# stay in your home, which is mounted at runtime.
+ARG BASE
+FROM ${BASE}
+
+# npm CLIs
+RUN npm install -g @openai/codex && codex --version
+
+# A single binary from a GitHub release, checksum-verified
+# ARG TOOL_VERSION=v1.2.3
+# RUN cd /tmp && url="https://github.com/OWNER/TOOL/releases/download/${TOOL_VERSION}" \
+#  && curl -fsSLO "$url/tool-linux-x86_64" && curl -fsSLO "$url/tool-linux-x86_64.sha256" \
+#  && echo "$(cut -d' ' -f1 tool-linux-x86_64.sha256)  tool-linux-x86_64" | sha256sum -c - \
+#  && install -m 755 tool-linux-x86_64 /usr/local/bin/tool && rm -f tool-linux-x86_64*
+
+# A tool that lives as a script in your home: expose it on PATH
+# RUN printf '#!/bin/sh\nexec node "$HOME/.local/share/mytool/index.js" "$@"\n' > /usr/local/bin/mytool \
+#  && chmod +x /usr/local/bin/mytool

@@ -1,0 +1,9 @@
+# Optional launcher settings — copy to ~/.claude-docker/env.
+# Sourced by the `claude` launcher on every run.
+
+# Give the container the host Docker socket, so Claude can run docker and
+# docker compose. This hands the container full control of your Docker engine.
+# CLAUDE_DOCKER_SOCKET=1
+
+# Extra host paths to mount at the same path, space-separated.
+# CLAUDE_DOCKER_MOUNTS="/Volumes/work /opt/data"
