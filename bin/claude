@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+# claude-docker-x86 — https://github.com/turinglabsorg/claude-docker-x86
+#
+# Runs the official Linux build of Claude Code in Docker as if it were native:
+#   - your home is bind-mounted at the SAME path and used as HOME, so Claude
+#     sees your real ~/.claude (CLAUDE.md, skills, settings, memory, history),
+#     ~/.claude.json and everything they reference
+#   - the working directory is the folder you launched `claude` from; if it is
+#     outside your home, that folder (or the root of its git repo) is mounted
+#     at the same path too
+#   - every edit lands straight on the host filesystem: the container keeps no
+#     state of its own and is removed on exit
+#   - it runs as your uid/gid, so files it creates are owned by you
+set -euo pipefail
+
+IMAGE="${CLAUDE_DOCKER_IMAGE:-claude-docker-x86:latest}"
+DOCKER="$(command -v docker 2>/dev/null || echo /usr/local/bin/docker)"
+
+home="$(cd "$HOME" && pwd -P)"
+workdir="$(pwd -P)"
+
+args=(run --rm --init -i
+      --user "$(id -u):$(id -g)"
+      -v "$home:$home" -e "HOME=$home"
+      -w "$workdir"
+      -e "USER=$(id -un)" -e TERM -e COLORTERM)
+
+case "$workdir/" in
+    "$home"/*) ;;
+    *)
+        mount="$(git -C "$workdir" rev-parse --show-toplevel 2>/dev/null || true)"
+        [ -n "$mount" ] || mount="$workdir"
+        args+=(-v "$mount:$mount")
+        ;;
+esac
+
+[ -t 0 ] && [ -t 1 ] && args+=(-t)
+
+for extra in ${CLAUDE_DOCKER_MOUNTS:-}; do
+    args+=(-v "$extra:$extra")
+done
+
+[ -n "${CLAUDE_DOCKER_ENTRYPOINT:-}" ] && args+=(--entrypoint "$CLAUDE_DOCKER_ENTRYPOINT")
+
+exec "$DOCKER" "${args[@]}" "$IMAGE" "$@"
