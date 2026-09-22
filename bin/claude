@@ -19,7 +19,7 @@ DOCKER="$(command -v docker 2>/dev/null || echo /usr/local/bin/docker)"
 home="$(cd "$HOME" && pwd -P)"
 workdir="$(pwd -P)"
 
-args=(run --rm --init -i
+args=(run --rm --init -i --shm-size=1g
       --user "$(id -u):$(id -g)"
       -v "$home:$home" -e "HOME=$home"
       -w "$workdir"
@@ -33,6 +33,11 @@ case "$workdir/" in
         args+=(-v "$mount:$mount")
         ;;
 esac
+
+# macOS symlinks /tmp, /var and /etc into /private: also expose the launch
+# folder at the path you typed, so arguments like /tmp/x resolve inside too
+logical="${PWD:-$workdir}"
+[ "$logical" != "$workdir" ] && args+=(-v "$workdir:$logical")
 
 [ -t 0 ] && [ -t 1 ] && args+=(-t)
 

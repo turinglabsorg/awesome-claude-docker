@@ -16,9 +16,13 @@ directly on your files and with your own Claude context.
 - So this runs the official, unmodified Linux build in Docker — which on an
   Intel Mac executes on the same CPU.
 
+The image also ships **Google Chrome** for headless browsing
+(chrome-devtools MCP, Playwright, Puppeteer).
+
 Verified on a Mac Pro 2013 (Xeon E5-1620 v2: AVX, no AVX2/FMA/BMI2), macOS
-12.7.6, Docker 28.1.1, Claude Code 2.1.280: `--version`, interactive UI, file
-writes and git from inside and outside the home.
+12.7.6, Docker 28.1.1, Claude Code 2.1.280, Google Chrome 154: `--version`,
+interactive UI, Opus 5.5, file writes and git from inside and outside the home,
+headless screenshots, chrome-devtools MCP.
 
 ## It works on your filesystem, not in the container
 
@@ -32,6 +36,8 @@ writes and git from inside and outside the home.
   of its own and is removed on exit.
 - It runs with **your uid/gid and a matching user**, so files it creates are
   owned by you and git/ssh see the same user as on the host.
+- macOS symlinks `/tmp`, `/var` and `/etc` into `/private`; the launch folder
+  is reachable inside under both forms, so paths you pass as arguments work.
 
 ## Install / update
 
@@ -44,11 +50,28 @@ cd claude-docker-x86
 ```
 
 Then `claude` works as usual, from any folder. The first time, run `/login`.
-Re-run `./install.sh` to update: it rebuilds the image only when a new release
-is out. A previous `claude` launcher, if any, is kept as `claude.pre-docker`.
+Re-run `./install.sh` to update: it rebuilds the image when a new Claude Code
+release is out or the `Dockerfile` changed (so a `git pull` is enough). A previous `claude` launcher, if any, is kept as `claude.pre-docker`.
 
 The Linux build keeps its login in `~/.claude/.credentials.json` (the macOS
 build uses the Keychain), so that file exists in your home after `/login`.
+
+## Headless Chrome and the chrome-devtools MCP
+
+There is no display in the container, and Docker's default seccomp profile
+blocks Chrome's sandbox for a non-root user, so Chrome runs headless with
+`--no-sandbox` (the container is the isolation boundary). The launcher gives
+the container a 1 GB `/dev/shm`, which Chrome needs.
+
+To give Claude a browser through the chrome-devtools MCP:
+
+```bash
+claude mcp add chrome-devtools --scope user -- \
+  npx -y chrome-devtools-mcp@latest --headless --isolated --chrome-arg=--no-sandbox
+```
+
+For Playwright or Puppeteer, use the installed Chrome (`channel: "chrome"`, or
+`executablePath: "/usr/bin/google-chrome"`) with the same `--no-sandbox` flag.
 
 ## Options
 

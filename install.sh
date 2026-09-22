@@ -13,12 +13,15 @@ DOCKER="$(command -v docker 2>/dev/null || echo /usr/local/bin/docker)"
 latest="$("$DOCKER" run --rm --entrypoint npm node:22-slim view @anthropic-ai/claude-code version </dev/null 2>/dev/null | tail -1 || true)"
 version="${CLAUDE_CODE_VERSION:-${latest:-latest}}"
 current="$("$DOCKER" run --rm --entrypoint claude "$IMAGE" --version </dev/null 2>/dev/null | awk '{print $1}' || true)"
+recipe="$(shasum -a 256 "$here/Dockerfile" | cut -c1-12)"
+built_recipe="$("$DOCKER" image inspect -f '{{ index .Config.Labels "claude-docker-x86.dockerfile" }}' "$IMAGE" 2>/dev/null || true)"
 
-if [ "$current" = "$version" ]; then
+if [ "$current" = "$version" ] && [ "$built_recipe" = "$recipe" ]; then
     echo "image already on Claude Code $current"
 else
     echo "building $IMAGE with Claude Code $version (current: ${current:-none})"
     "$DOCKER" build \
+        --label "claude-docker-x86.dockerfile=$recipe" \
         --build-arg "CLAUDE_CODE_VERSION=$version" \
         --build-arg "USER_UID=$(id -u)" \
         --build-arg "USER_GID=$(id -g)" \

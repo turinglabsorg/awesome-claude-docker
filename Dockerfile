@@ -9,6 +9,15 @@ ARG CLAUDE_CODE_VERSION=latest
 RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" \
  && claude --version
 
+# Google Chrome for headless browsing (chrome-devtools-mcp, Playwright,
+# Puppeteer). Installed after Claude Code so each Claude update also brings a
+# current Chrome.
+RUN curl -fsSL -o /tmp/chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb \
+ && apt-get update \
+ && apt-get install -y --no-install-recommends /tmp/chrome.deb fonts-liberation \
+ && rm -rf /tmp/chrome.deb /var/lib/apt/lists/* \
+ && google-chrome --version
+
 # Mirror the host user (same uid, gid, name and home path): the host home is
 # bind-mounted at the same path and used as HOME, and tools that look the user
 # up (git, ssh, os.userInfo) need a matching passwd entry.

@@ -16,4 +16,10 @@
      match the host paths, and a file written inside must appear on the host
      owned by the user
   4. start `<tmp>/claude` in a TTY (e.g. tmux) and check that the UI renders
+  5. `CLAUDE_DOCKER_ENTRYPOINT=google-chrome <tmp>/claude --headless=new
+     --no-sandbox --screenshot=<launch folder>/shot.png https://example.com`
+     from a folder under `/Users` and from one under `/tmp`: the PNG must
+     appear on the host
+  6. with the chrome-devtools MCP configured, `claude mcp list` reports it
+     connected
 - Code, docs and commit messages in English.
