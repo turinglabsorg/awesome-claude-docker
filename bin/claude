@@ -98,23 +98,36 @@ fi
 
 [ -t 0 ] && [ -t 1 ] && args+=(-t)
 
-# Pasting images: Claude Code on Linux reads the clipboard through xclip, and
-# no container can reach the Mac clipboard. For an interactive session on macOS
-# the launcher starts a small bridge on the host loopback that hands over the
-# clipboard image (never text) to requests carrying a random token, and exits
-# with the session; the image's xclip asks it. CLAUDE_DOCKER_CLIPBOARD=0 skips it.
+# The host bridge: one small process on the host loopback, started for this
+# session and gone with it, answering only requests that carry its random token.
+# It gives the container two things it cannot reach by itself:
+#   - the clipboard image, so Ctrl+V pastes screenshots (interactive sessions;
+#     the clipboard's text is never served). CLAUDE_DOCKER_CLIPBOARD=0 skips it.
+#   - host tools: each command named in CLAUDE_DOCKER_HOST_TOOLS runs on the
+#     host, in the same folder, with the host's environment, config and
+#     credentials. In the image each name is a stub (install.sh makes them) that
+#     forwards arguments, stdin, stdout, stderr and the exit code, so every agent
+#     in every session shares the host's one copy of the tool and its state.
+clipboard=0
 if [ "$(uname -s)" = Darwin ] && [ -t 0 ] && [ -t 1 ] && [ "${CLAUDE_DOCKER_CLIPBOARD:-1}" = 1 ]; then
+    clipboard=1
+fi
+if [ "$(uname -s)" = Darwin ] && { [ "$clipboard" = 1 ] || [ -n "${CLAUDE_DOCKER_HOST_TOOLS:-}" ]; }; then
     read -r -d '' bridge <<'PERL' || true
 use strict;
 use warnings;
+use Errno qw(EAGAIN);
 use File::Temp qw(tempdir);
+use IO::Handle;
 use IO::Select;
 use IO::Socket::INET;
-use POSIX qw(setsid);
+use JSON::PP qw(decode_json);
+use POSIX qw(setsid WNOHANG);
 
-my $owner = shift;
+my ($owner, $clipboard, @tools) = @ARGV;
+my %host_tool = map { $_ => 1 } @tools;
 my $server = IO::Socket::INET->new(LocalAddr => "127.0.0.1", LocalPort => 0,
-                                   Listen => 5, ReuseAddr => 1) or exit 1;
+                                   Listen => 32, ReuseAddr => 1) or exit 1;
 open my $random, "<:raw", "/dev/urandom" or exit 1;
 read $random, my $bytes, 16;
 my $token = unpack "H*", $bytes;
@@ -124,47 +137,186 @@ setsid();
 open STDIN, "<", "/dev/null";
 open STDOUT, ">", "/dev/null";
 open STDERR, ">", "/dev/null";
+$SIG{PIPE} = "IGNORE";
+$SIG{CHLD} = sub { 1 while waitpid(-1, WNOHANG) > 0 };
+my $scratch = tempdir(CLEANUP => 1);
 
-my $png = tempdir(CLEANUP => 1) . "/clipboard.png";
-my $class = "\xc2\xabclass PNGf\xc2\xbb";
-sub image {
-    unlink $png;
-    system "osascript", "-e", "set png_data to (the clipboard as $class)",
+sub read_exact {
+    my ($socket, $want) = @_;
+    my $data = "";
+    while (length $data < $want) {
+        my $got = sysread $socket, $data, $want - length $data, length $data;
+        return undef unless $got;
+    }
+    return $data;
+}
+
+sub send_frame {
+    my ($socket, $kind, $data) = @_;
+    my $frame = $kind . pack("N", length $data) . $data;
+    while (length $frame) {
+        my $sent = syswrite $socket, $frame;
+        return 0 unless $sent;
+        substr($frame, 0, $sent) = "";
+    }
+    return 1;
+}
+
+sub clipboard_image {
+    my $png = "$scratch/clipboard.$$.png";
+    system "osascript", "-e", "set png_data to (the clipboard as \xc2\xabclass PNGf\xc2\xbb)",
         "-e", "set fp to open for access POSIX file \"$png\" with write permission",
         "-e", "write png_data to fp", "-e", "close access fp";
     open my $in, "<:raw", $png or return "";
     local $/;
     my $data = <$in> // "";
+    close $in;
     unlink $png;
     return $data;
+}
+
+sub serve_clipboard {
+    my ($client) = @_;
+    my $request = "G";
+    while ($request !~ /\r?\n\r?\n\z/ && length $request < 8192) {
+        $request .= read_exact($client, 1) // return;
+    }
+    my ($path) = $request =~ m{^GET /(\S+) };
+    my $data = "";
+    if ($clipboard eq "1" && defined $path && ($path eq "$token/png" || $path eq "$token/targets")) {
+        $data = clipboard_image();
+        $data = "image/png\n" if length $data && $path eq "$token/targets";
+    }
+    print {$client} length $data
+        ? "HTTP/1.0 200 OK\r\nContent-Length: " . length($data) . "\r\n\r\n" . $data
+        : "HTTP/1.0 404 Not Found\r\nContent-Length: 0\r\n\r\n";
+}
+
+sub find_tool {
+    my ($name) = @_;
+    for my $dir (split(/:/, $ENV{PATH} // ""), "$ENV{HOME}/.local/bin") {
+        return "$dir/$name" if $dir =~ m{^/} && -f "$dir/$name" && -x _;
+    }
+    return undef;
+}
+
+sub refuse {
+    my ($client, $message, $code) = @_;
+    send_frame($client, "E", "scott: $message\n");
+    send_frame($client, "X", pack("N", $code));
+}
+
+sub serve_tool {
+    my ($client) = @_;
+    my $length = unpack "N", (read_exact($client, 4) // return);
+    return if $length > 4 << 20;
+    my $request = eval { decode_json(read_exact($client, $length) // "") };
+    return unless ref $request eq "HASH" && ($request->{token} // "") eq $token;
+    alarm 0;
+    my $name = $request->{tool} // "";
+    my @argv = map { "$_" } @{ ref $request->{args} eq "ARRAY" ? $request->{args} : [] };
+    my %env = %{ ref $request->{env} eq "HASH" ? $request->{env} : {} };
+    my $cwd = $request->{cwd} // "";
+    return refuse($client, "$name is not a host tool in this session (CLAUDE_DOCKER_HOST_TOOLS)", 127)
+        unless $host_tool{$name};
+    my $path = find_tool($name) or return refuse($client, "$name is not installed on the host", 127);
+    return refuse($client, "$cwd is not a folder on the host: run $name from your home or the launch folder", 126)
+        unless $cwd =~ m{^/} && -d $cwd;
+    (my $prefix = uc $name) =~ s/[^A-Z0-9]/_/g;
+
+    pipe(my $in_r, my $in_w) && pipe(my $out_r, my $out_w) && pipe(my $err_r, my $err_w) or return;
+    defined(my $child = fork) or return refuse($client, "cannot start $name", 126);
+    if ($child == 0) {
+        setpgrp(0, 0);
+        open STDIN, "<&", $in_r;
+        open STDOUT, ">&", $out_w;
+        open STDERR, ">&", $err_w;
+        close $_ for $in_r, $in_w, $out_r, $out_w, $err_r, $err_w, $client;
+        chdir $cwd or POSIX::_exit(126);
+        $ENV{PWD} = $cwd;
+        for my $key (keys %env) {
+            $ENV{$key} = "$env{$key}" if index($key, "${prefix}_") == 0;
+        }
+        { no warnings "exec"; exec { $path } $name, @argv; }
+        print STDERR "scott: cannot run $path: $!\n";
+        POSIX::_exit(126);
+    }
+    close $_ for $in_r, $out_w, $err_w;
+    $in_w->blocking(0);
+
+    my %kind = (fileno($out_r) => "O", fileno($err_r) => "E");
+    my $readers = IO::Select->new($client, $out_r, $err_r);
+    my ($inbox, $stdin, $stdin_done, $outputs) = ("", "", 0, 2);
+    while ($outputs) {
+        my $writers = IO::Select->new($in_w && length $stdin ? $in_w : ());
+        my @ready = IO::Select->select($readers, $writers, undef, 1) or next;
+        for my $handle (@{ $ready[0] }) {
+            if ($handle == $client) {
+                unless (sysread $client, $inbox, 65536, length $inbox) {
+                    kill "TERM", -$child;
+                    sleep 1;
+                    kill "KILL", -$child;
+                    waitpid $child, 0;
+                    return;
+                }
+                while (length $inbox >= 5) {
+                    my ($type, $size) = unpack "a N", $inbox;
+                    last if length $inbox < 5 + $size;
+                    my $data = substr $inbox, 5, $size;
+                    substr($inbox, 0, 5 + $size) = "";
+                    next unless $type eq "I";
+                    if ($size) { $stdin .= $data } else { $stdin_done = 1 }
+                }
+            } elsif (sysread $handle, my $data, 65536) {
+                send_frame($client, $kind{ fileno($handle) }, $data);
+            } else {
+                $readers->remove($handle);
+                close $handle;
+                $outputs--;
+            }
+        }
+        if ($in_w && length $stdin && grep { $_ == $in_w } @{ $ready[1] }) {
+            my $sent = syswrite $in_w, $stdin;
+            if (defined $sent) { substr($stdin, 0, $sent) = "" }
+            elsif ($! != EAGAIN) { close $in_w; undef $in_w; $stdin = "" }
+        }
+        if ($in_w && $stdin_done && !length $stdin) { close $in_w; undef $in_w }
+    }
+    close $in_w if $in_w;
+    waitpid $child, 0;
+    my $status = $?;
+    send_frame($client, "X", pack("N", $status & 127 ? 128 + ($status & 127) : $status >> 8));
+}
+
+sub handle {
+    my ($client) = @_;
+    local $SIG{ALRM} = sub { POSIX::_exit(0) };
+    alarm 15;
+    my $kind = read_exact($client, 1) // return;
+    return serve_clipboard($client) if $kind eq "G";
+    return serve_tool($client) if $kind eq "R";
 }
 
 my $select = IO::Select->new($server);
 while (kill 0, $owner) {
     $select->can_read(2) or next;
     my $client = $server->accept or next;
-    eval {
-        local $SIG{ALRM} = sub { die "timeout\n" };
-        alarm 10;
-        my ($path) = (<$client> // "") =~ m{^GET /(\S+) };
-        while (my $line = <$client>) { last if $line =~ /^\r?\n$/ }
-        my $data = "";
-        if (defined $path && ($path eq "$token/png" || $path eq "$token/targets")) {
-            $data = image();
-            $data = "image/png\n" if length $data && $path eq "$token/targets";
-        }
-        print {$client} length $data
-            ? "HTTP/1.0 200 OK\r\nContent-Length: " . length($data) . "\r\n\r\n" . $data
-            : "HTTP/1.0 404 Not Found\r\nContent-Length: 0\r\n\r\n";
-        alarm 0;
-    };
+    defined(my $handler = fork) or do { close $client; next };
+    if ($handler == 0) {
+        $SIG{CHLD} = "DEFAULT";
+        close $server;
+        eval { handle($client) };
+        close $client;
+        POSIX::_exit(0);
+    }
     close $client;
 }
 PERL
-    clipboard="$(perl -e "$bridge" "$$" 2>/dev/null || true)"
-    if [ -n "$clipboard" ]; then
-        export SCOTT_CLIPBOARD="http://host.docker.internal:$clipboard"
-        args+=(-e SCOTT_CLIPBOARD)
+    read -r -a host_tools <<< "${CLAUDE_DOCKER_HOST_TOOLS:-}"
+    endpoint="$(perl -e "$bridge" "$$" "$clipboard" ${host_tools[@]+"${host_tools[@]}"} 2>/dev/null || true)"
+    if [ -n "$endpoint" ]; then
+        export SCOTT_BRIDGE="host.docker.internal:$endpoint"
+        args+=(-e SCOTT_BRIDGE)
     fi
 fi
 

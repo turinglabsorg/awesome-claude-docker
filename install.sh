@@ -10,8 +10,11 @@
 set -euo pipefail
 
 here="$(cd "$(dirname "$0")" && pwd)"
-IMAGE="${CLAUDE_DOCKER_IMAGE:-scott:latest}"
 PERSONAL="${CLAUDE_DOCKER_PERSONAL:-$HOME/.claude-docker}"
+# The launcher's settings, for the ones the image depends on (the host tools)
+# shellcheck disable=SC1091
+[ -f "$PERSONAL/env" ] && . "$PERSONAL/env"
+IMAGE="${CLAUDE_DOCKER_IMAGE:-scott:latest}"
 LAUNCHER="${CLAUDE_DOCKER_LAUNCHER:-/usr/local/bin/claude}"
 DOCKER="$(command -v docker 2>/dev/null || echo /usr/local/bin/docker)"
 MANAGED="scott.managed=1"
@@ -41,6 +44,24 @@ else
     cp "$here/Dockerfile" "$work/Dockerfile"
     context="$here"
     refresh="$week"
+fi
+# Host tools: each name in CLAUDE_DOCKER_HOST_TOOLS becomes a link to the
+# image's scott-host, which runs the host's copy through the launcher's bridge.
+# Added last, so it replaces any copy of the same name installed above.
+read -r -a tools <<< "${CLAUDE_DOCKER_HOST_TOOLS:-}"
+for tool in ${tools[@]+"${tools[@]}"}; do
+    if ! [[ "$tool" =~ ^[A-Za-z0-9._-]+$ ]] || [ "$tool" = scott-host ]; then
+        echo "error: not a usable command name in CLAUDE_DOCKER_HOST_TOOLS: $tool"
+        exit 1
+    fi
+done
+host_tools="${tools[*]+"${tools[*]}"}"
+if [ -n "$host_tools" ]; then
+    {
+        echo
+        echo "# ---- host tools (CLAUDE_DOCKER_HOST_TOOLS)"
+        echo "RUN for tool in $host_tools; do ln -sf scott-host \"/usr/local/bin/\$tool\"; done"
+    } >> "$work/Dockerfile"
 fi
 recipe="$(shasum -a 256 "$work/Dockerfile" | cut -c1-12)"
 

@@ -1,5 +1,5 @@
 # Optional launcher settings — copy to ~/.claude-docker/env.
-# Sourced by the `claude` launcher on every run.
+# Sourced by the `claude` launcher on every run, and by install.sh.
 
 # Give the container the host Docker socket, so Claude can run docker and
 # docker compose. This hands the container full control of your Docker engine.
@@ -7,3 +7,8 @@
 
 # Extra host paths to mount at the same path, space-separated.
 # CLAUDE_DOCKER_MOUNTS="/Volumes/work /opt/data"
+
+# Commands that run on the host instead of in the container (macOS): every
+# agent in every session then shares the host's one copy and its state.
+# Sourced by install.sh too, which builds the stubs: re-run it after a change.
+# CLAUDE_DOCKER_HOST_TOOLS="gh hush"

@@ -60,7 +60,8 @@ Your cloud identities don't get to time-travel. The Google Cloud config dirs
 (`~/.config/gcloud` and any `~/.config/gcloud-*` profile roots) are covered by
 an empty, read-only tmpfs, so your home is mounted *without* them.
 `CLAUDE_DOCKER_MASK` hides more paths. Anything that needs those identities
-stays on the host, where Biff can't reach it.
+stays on the host, where Biff can't reach it — and can still be called from
+inside, as a [host tool](#some-tools-never-leave-1985).
 
 ## What's in the time machine
 
@@ -119,21 +120,55 @@ claude mcp add chrome-devtools --scope user -- \
 For Playwright or Puppeteer, use the installed Chrome (`channel: "chrome"`, or
 `executablePath: "/usr/bin/google-chrome"`) with the same `--no-sandbox`.
 
+## Some tools never leave 1985
+
+A container that forgets everything on exit is the wrong place for tools with
+a memory: the one secrets vault every agent reads and writes, the cloud CLIs
+whose identities must never enter the container, the CLIs whose login lives in
+the macOS Keychain. Give every Claude — and every subagent, in every session —
+the host's own copy instead. List them in `~/.claude-docker/env` and re-run
+`./install.sh`:
+
+```bash
+CLAUDE_DOCKER_HOST_TOOLS="gh hush devo"
+```
+
+Each name becomes a stub in the image. Run `gh` inside and the host's `gh`
+runs: on the host, in the same folder, with the environment `claude` was
+started with, and with the host's config and credentials. Arguments, stdin,
+stdout, stderr and the exit code make the round trip, and a Ctrl+C or a
+timeout inside stops the host process too. Variables named after the tool
+(`GH_*` for `gh`) travel along; nothing else from inside does.
+
+The fine print, before you blame the flux capacitor:
+
+- A host tool runs with **your full rights on the host**, so list only what
+  you'd let an agent run natively. A tool that runs other commands (`hush run`,
+  `codex exec`) runs them on the host as well.
+- Paths under your home and the launch folder are the same on both sides; the
+  container's own `/tmp` doesn't exist out there.
+- macOS only, for now.
+
 ## Pasting images across the space-time continuum
 
 **Ctrl+V** pastes an image, as in the native Claude Code. The Linux build reads
 the clipboard through `xclip`, and a container can see the Mac clipboard about
-as well as Marty could phone 1955. So for an interactive session on macOS the
-launcher starts a tiny bridge on the host. It listens on `127.0.0.1` only,
-answers only requests carrying a random per-session token, hands over the
-clipboard **image** (never text — your copied passwords stay in this century)
-and exits with the session. The `xclip` in the image is a stub that asks it.
-It needs nothing beyond `perl` and `osascript`, which ship with macOS;
+as well as Marty could phone 1955. So the `xclip` in the image asks the host
+bridge (below) for the clipboard **image** — never its text: your copied
+passwords stay in this century. Interactive sessions only;
 `CLAUDE_DOCKER_CLIPBOARD=0` turns it off.
 
 Your screenshots make the jump without 1.21 gigawatts. Dragging an image file
 into the terminal works too, as long as the file is somewhere the container
 can see (your home, or the launch folder).
+
+## The bridge home
+
+Both of the above ride on one small process the launcher starts on the host
+for each session. It listens on `127.0.0.1` only, answers only requests that
+carry a random per-session token, runs nothing but the tools you listed, and
+is gone when the session ends. It needs nothing beyond `perl` and `osascript`,
+which ship with macOS.
 
 ## Docker, from inside Docker
 
@@ -153,6 +188,7 @@ reach — on purpose.
 | Variable | Default | What it does |
 |---|---|---|
 | `CLAUDE_DOCKER_SOCKET` | `0` | `1` mounts the host Docker socket |
+| `CLAUDE_DOCKER_HOST_TOOLS` | — | commands that run on the host instead of in the container, space-separated (macOS; re-run `install.sh` after changing it) |
 | `CLAUDE_DOCKER_CLIPBOARD` | `1` | `0` skips the clipboard bridge that lets Ctrl+V paste images (macOS) |
 | `CLAUDE_DOCKER_MOUNTS` | — | extra host paths to mount at the same path, space-separated |
 | `CLAUDE_DOCKER_ENV` | — | extra environment variable names to pass through, space-separated |
@@ -180,7 +216,8 @@ Time travel has rules. So does this.
 
 - Commands Claude runs execute in **Linux**. macOS-only things — `brew`, `open`,
   `pbcopy`, the Keychain, Xcode — and the macOS binaries in your home don't
-  work inside. Add Linux builds of what you need to your tool layer.
+  work inside. Add Linux builds of what you need to your tool layer, or run
+  the host's copy as a [host tool](#some-tools-never-leave-1985).
 - `node_modules` with native addons built on macOS won't load inside, and vice
   versa. Two timelines, two sets of binaries.
 - Hooks, MCP servers and plugins from your config run inside the container

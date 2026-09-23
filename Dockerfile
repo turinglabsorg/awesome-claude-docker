@@ -64,7 +64,7 @@ ENV DOCKER_CONFIG=/etc/scott/docker
 
 # Claude Code on Linux pastes images through xclip. This one only reads the
 # clipboard image, from the bridge the launcher starts on the Mac host
-# (SCOTT_CLIPBOARD); anything else fails as if xclip were not installed.
+# (SCOTT_BRIDGE); anything else fails as if xclip were not installed.
 COPY --chmod=755 <<'EOF' /usr/local/bin/xclip
 #!/bin/sh
 read=0 target=
@@ -75,14 +75,111 @@ while [ $# -gt 0 ]; do
     esac
     shift
 done
-if [ -n "${SCOTT_CLIPBOARD:-}" ] && [ "$read" = 1 ]; then
+if [ -n "${SCOTT_BRIDGE:-}" ] && [ "$read" = 1 ]; then
     case "$target" in
-        TARGETS) exec curl -fsS --max-time 15 "$SCOTT_CLIPBOARD/targets" ;;
-        image/png) exec curl -fsS --max-time 15 "$SCOTT_CLIPBOARD/png" ;;
+        TARGETS) exec curl -fsS --max-time 15 "http://$SCOTT_BRIDGE/targets" ;;
+        image/png) exec curl -fsS --max-time 15 "http://$SCOTT_BRIDGE/png" ;;
     esac
 fi
 echo "xclip (scott): only reading the clipboard image is supported" >&2
 exit 1
+EOF
+
+# Host tools: install.sh links each name in CLAUDE_DOCKER_HOST_TOOLS to this
+# client, which runs the host's copy through the launcher's bridge.
+COPY --chmod=755 <<'EOF' /usr/local/bin/scott-host
+#!/usr/bin/env python3
+"""Run a host tool from inside the container.
+
+Hands the arguments, the working directory and the tool's own environment
+variables (those named after it, e.g. GH_* for gh) to the launcher's host
+bridge, streams stdin to it and the tool's stdout and stderr back, and exits
+with the tool's exit code. Invoked through a link named after the tool, or as
+`scott-host <tool> [args...]`.
+"""
+import json
+import os
+import socket
+import struct
+import sys
+import threading
+
+
+def send(sock, kind, data=b""):
+    sock.sendall(kind + struct.pack(">I", len(data)) + data)
+
+
+def receive(sock, size):
+    data = b""
+    while len(data) < size:
+        chunk = sock.recv(size - len(data))
+        if not chunk:
+            return None
+        data += chunk
+    return data
+
+
+def forward_stdin(sock):
+    try:
+        if not os.isatty(0):
+            while True:
+                chunk = os.read(0, 65536)
+                if not chunk:
+                    break
+                send(sock, b"I", chunk)
+        send(sock, b"I")
+    except OSError:
+        pass
+
+
+def main():
+    tool, args = os.path.basename(sys.argv[0]), sys.argv[1:]
+    if tool == "scott-host":
+        if not args:
+            sys.stderr.write("usage: scott-host <tool> [args...]\n")
+            return 2
+        tool, args = args[0], args[1:]
+    address, _, token = os.environ.get("SCOTT_BRIDGE", "").rpartition("/")
+    host, _, port = address.rpartition(":")
+    if not (token and host and port.isdigit()):
+        sys.stderr.write("scott: %s runs on the host, and this container has no host bridge\n" % tool)
+        return 127
+    try:
+        sock = socket.create_connection((host, int(port)), timeout=10)
+    except OSError as error:
+        sys.stderr.write("scott: cannot reach the host bridge for %s: %s\n" % (tool, error))
+        return 127
+    sock.settimeout(None)
+    prefix = "".join(c if c.isalnum() else "_" for c in tool.upper()) + "_"
+    env = {k: v for k, v in os.environ.items() if k.startswith(prefix)}
+    send(sock, b"R", json.dumps({"token": token, "tool": tool, "args": args,
+                                 "cwd": os.getcwd(), "env": env}).encode())
+    threading.Thread(target=forward_stdin, args=(sock,), daemon=True).start()
+    streams = {b"O": sys.stdout.buffer, b"E": sys.stderr.buffer}
+    while True:
+        head = receive(sock, 5)
+        data = receive(sock, struct.unpack(">I", head[1:])[0]) if head else None
+        if data is None:
+            sys.stderr.write("scott: the host bridge closed the connection during %s\n" % tool)
+            return 255
+        if head[:1] == b"X":
+            return struct.unpack(">I", data)[0]
+        stream = streams.get(head[:1])
+        if stream:
+            try:
+                stream.write(data)
+                stream.flush()
+            except BrokenPipeError:
+                return 141
+
+
+if __name__ == "__main__":
+    code = main()
+    try:
+        sys.stdout.flush()
+    except OSError:
+        pass
+    os._exit(code & 255)
 EOF
 
 ENV LANG=C.UTF-8

@@ -15,9 +15,11 @@
   - the Docker socket is mounted only when `CLAUDE_DOCKER_SOCKET=1`
   - environment variables pass through by name only (`-e NAME`), never with
     their values on the command line
-  - the clipboard bridge (macOS, interactive sessions only) listens on
-    `127.0.0.1`, requires the per-session token, serves the clipboard image
-    and never text, and exits when the session ends
+  - the host bridge (macOS) listens on `127.0.0.1`, requires the per-session
+    token, serves the clipboard image (interactive sessions) and never text,
+    runs only the commands named in `CLAUDE_DOCKER_HOST_TOOLS` (argv, never a
+    shell string), forwards only the tool's own `<TOOL>_*` variables, and
+    exits when the session ends
 - Images: never copy credentials or config into an image, and never add a tool
   whose use needs a masked identity root. `install.sh` prunes only dangling
   images carrying the `scott.managed=1` label.
@@ -48,4 +50,12 @@
       the PNG, a request without the token gets 404, `xclip -i` and text
       reads fail; the bridge listens only on `127.0.0.1` and is gone after
       the session exits
+  11. with `CLAUDE_DOCKER_HOST_TOOLS` set (built into a test image tag, e.g.
+      `CLAUDE_DOCKER_IMAGE=scott-test:latest`, so live sessions keep working):
+      inside, `scott-host uname -s` prints `Darwin`, `scott-host pwd` the same
+      folder, stdin and exit codes pass through, a tool not in the list gets
+      127, a folder that exists only in the container 126, a wrong token 255;
+      parallel calls work; `timeout 2 scott-host sleep 30` leaves no `sleep`
+      on the host; only `<TOOL>_*` variables reach the tool; `claude -p` runs
+      a listed tool through its Bash tool
 - Code, docs and commit messages in English.
