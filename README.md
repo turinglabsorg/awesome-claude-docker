@@ -122,16 +122,18 @@ For Playwright or Puppeteer, use the installed Chrome (`channel: "chrome"`, or
 ## Pasting images across the space-time continuum
 
 **Ctrl+V** pastes an image, as in the native Claude Code. The Linux build reads
-the clipboard through `xclip`, and no container can see the Mac clipboard, so
-for an interactive session on macOS the launcher starts a tiny bridge on the
-host. It listens on `127.0.0.1` only, answers only requests carrying a random
-per-session token, hands over the clipboard **image** (never text) and exits
-with the session. The `xclip` in the image is a stub that asks it. It needs
-nothing beyond `perl` and `osascript`, which ship with macOS;
+the clipboard through `xclip`, and a container can see the Mac clipboard about
+as well as Marty could phone 1955. So for an interactive session on macOS the
+launcher starts a tiny bridge on the host. It listens on `127.0.0.1` only,
+answers only requests carrying a random per-session token, hands over the
+clipboard **image** (never text — your copied passwords stay in this century)
+and exits with the session. The `xclip` in the image is a stub that asks it.
+It needs nothing beyond `perl` and `osascript`, which ship with macOS;
 `CLAUDE_DOCKER_CLIPBOARD=0` turns it off.
 
-Dragging an image file into the terminal works too, as long as the file is
-somewhere the container can see (your home, or the launch folder).
+Your screenshots make the jump without 1.21 gigawatts. Dragging an image file
+into the terminal works too, as long as the file is somewhere the container
+can see (your home, or the launch folder).
 
 ## Docker, from inside Docker
 
