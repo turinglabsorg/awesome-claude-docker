@@ -82,11 +82,19 @@ fi
 while IFS= read -r name; do
     [ -n "$base_url" ] && [ "$name" = ANTHROPIC_BASE_URL ] && continue
     args+=(-e "$name")
-done < <(compgen -e | grep -E '^(ANTHROPIC_|CLAUDE_CODE_|DISABLE_|API_TIMEOUT_MS$|MAX_THINKING_TOKENS$|MCP_(TOOL_)?TIMEOUT$|BASH_(DEFAULT|MAX)_TIMEOUT_MS$|(HTTPS?|NO)_PROXY$|(https?|no)_proxy$)' || true)
+done < <(compgen -e | grep -E '^(ANTHROPIC_|CLAUDE_CODE_|DISABLE_|BW_|BITWARDENCLI_|HUSH_|API_TIMEOUT_MS$|MAX_THINKING_TOKENS$|MCP_(TOOL_)?TIMEOUT$|BASH_(DEFAULT|MAX)_TIMEOUT_MS$|(HTTPS?|NO)_PROXY$|(https?|no)_proxy$)' || true)
 for name in ${CLAUDE_DOCKER_ENV:-}; do
     args+=(-e "$name")
 done
 [ "$(uname -s)" = Darwin ] || args+=(--add-host=host.docker.internal:host-gateway)
+
+# The Bitwarden CLI keeps its data per OS: ~/Library/Application Support on
+# macOS, ~/.config on Linux. Point the Linux one at the macOS data dir, so an
+# existing login (e.g. an agent's own account used by hush) works inside too.
+bw_mac="$home/Library/Application Support/Bitwarden CLI"
+if [ -z "${BITWARDENCLI_APPDATA_DIR:-}" ] && [ -d "$bw_mac" ]; then
+    args+=(-e "BITWARDENCLI_APPDATA_DIR=$bw_mac")
+fi
 
 [ -t 0 ] && [ -t 1 ] && args+=(-t)
 

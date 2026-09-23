@@ -41,6 +41,10 @@ up on a command line. A base URL on the host loopback is rewritten to
 working: `ollama launch claude --model <model>` runs this launcher and reaches
 the host's Ollama from inside the container.
 
+The Bitwarden CLI keeps its data per OS; on macOS the launcher points the Linux
+one at `~/Library/Application Support/Bitwarden CLI`, so an existing login —
+such as an agent's own account used through a secrets tool — works inside too.
+
 ## What is in the base image
 
 Debian 13 (glibc 2.41, so binaries built on current distros run), official
@@ -53,7 +57,7 @@ Linux), and **Google Chrome** for headless browsing (Chromium on arm64).
 
 | File | Purpose |
 |---|---|
-| `~/.claude-docker/Dockerfile` | extra tools, built on top of the base image |
+| `~/.claude-docker/Dockerfile` | your extra tools, built into the same image |
 | `~/.claude-docker/env` | launcher settings, sourced on every run |
 
 Start from [`examples/Dockerfile.personal`](examples/Dockerfile.personal) and
@@ -65,13 +69,14 @@ they stay in your home, which is mounted at runtime.
 
 ## Staying current
 
-Re-run `./install.sh` to update:
+Re-run `./install.sh` to update. It always builds **one complete image**: the
+base `Dockerfile` with your tool layer appended as a second stage.
 
-- the base image is rebuilt when a new Claude Code release is out, when its
-  `Dockerfile` changes, or once it is a week old (browser and CLIs refresh);
-- the personal layer is rebuilt on every run, so it installs the latest
-  version of each tool;
-- images the installer built and has just superseded are removed (only those:
+- With a tool layer the image is rebuilt on every run, so each of your tools
+  is at its latest release; the base steps come from the build cache, and are
+  refreshed on a new Claude Code release, a `Dockerfile` change, or weekly.
+- Without one it is rebuilt only in those three cases.
+- Images the installer built and has just superseded are removed (only those:
   it filters on its own label).
 
 Updates never happen inside the container: it is thrown away on exit.

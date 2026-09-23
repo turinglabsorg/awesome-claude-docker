@@ -1,6 +1,8 @@
-# Personal layer — copy to ~/.claude-docker/Dockerfile and edit.
-# install.sh builds it on top of the base image, so your toolset travels with
-# you: keep this file in your dotfiles and rebuild anywhere.
+# Tool layer — copy to ~/.claude-docker/Dockerfile and edit.
+# install.sh appends it to the base Dockerfile and builds ONE complete image,
+# so your toolset travels with you: keep this file in your dotfiles and rebuild
+# anywhere. The ARG BASE / FROM lines below are dropped when it is appended; they
+# only let the file build on its own with --build-arg BASE=<image>.
 #
 # Install TOOLS only. Never COPY credentials or config into the image: they
 # stay in your home, which is mounted at runtime.

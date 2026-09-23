@@ -1,9 +1,9 @@
 # Debian 13 (glibc 2.41): recent enough for binaries built on current distros
-FROM node:22-trixie-slim
+FROM node:22-trixie-slim AS base
 
-# install.sh passes the current ISO week, so the whole image — browser and
-# CLIs included — is rebuilt with current versions at least once a week.
-ARG REFRESH
+# install.sh passes the current ISO week, so these layers — browser and CLIs
+# included — are rebuilt with current versions at least once a week.
+ARG BASE_REFRESH
 
 # Base toolset for a coding agent, plus the official apt repositories of the
 # GitHub CLI and the Docker CLI.
