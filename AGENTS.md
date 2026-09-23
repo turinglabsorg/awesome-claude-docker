@@ -1,4 +1,4 @@
-# Agent instructions — awesome-claude-docker
+# Agent instructions — scott
 
 - Scope: a Docker image plus a launcher that run the official Claude Code as if
   it were native, with an optional personal tool layer in `~/.claude-docker/`.
@@ -17,7 +17,7 @@
     their values on the command line
 - Images: never copy credentials or config into an image, and never add a tool
   whose use needs a masked identity root. `install.sh` prunes only dangling
-  images carrying the `awesome-claude-docker.managed=1` label.
+  images carrying the `scott.managed=1` label.
 - Before pushing, test on a machine with Docker running:
   1. `CLAUDE_DOCKER_LAUNCHER=<tmp>/claude ./install.sh`, with and without a
      personal layer

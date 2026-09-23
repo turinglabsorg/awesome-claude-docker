@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# awesome-claude-docker — build the image and install the `claude` launcher.
+# scott — build the image and install the `claude` launcher.
 #
 # Re-run to update. It always produces ONE complete image: the base Dockerfile
 # plus, if present, your tool layer (~/.claude-docker/Dockerfile) appended to it
@@ -10,15 +10,15 @@
 set -euo pipefail
 
 here="$(cd "$(dirname "$0")" && pwd)"
-IMAGE="${CLAUDE_DOCKER_IMAGE:-awesome-claude-docker:latest}"
+IMAGE="${CLAUDE_DOCKER_IMAGE:-scott:latest}"
 PERSONAL="${CLAUDE_DOCKER_PERSONAL:-$HOME/.claude-docker}"
 LAUNCHER="${CLAUDE_DOCKER_LAUNCHER:-/usr/local/bin/claude}"
 DOCKER="$(command -v docker 2>/dev/null || echo /usr/local/bin/docker)"
-MANAGED="awesome-claude-docker.managed=1"
+MANAGED="scott.managed=1"
 
 "$DOCKER" info >/dev/null 2>&1 || { echo "error: Docker is not running — start Docker Desktop"; exit 1; }
 
-label() { "$DOCKER" image inspect -f "{{ index .Config.Labels \"awesome-claude-docker.$1\" }}" "$IMAGE" 2>/dev/null || true; }
+label() { "$DOCKER" image inspect -f "{{ index .Config.Labels \"scott.$1\" }}" "$IMAGE" 2>/dev/null || true; }
 
 latest="$("$DOCKER" run --rm --entrypoint npm node:22-trixie-slim view @anthropic-ai/claude-code version </dev/null 2>/dev/null | tail -1 || true)"
 version="${CLAUDE_CODE_VERSION:-${latest:-latest}}"
@@ -53,9 +53,9 @@ else
     echo "building $IMAGE (Claude Code $version$([ -f "$PERSONAL/Dockerfile" ] && echo ", tool layer from $PERSONAL"))"
     "$DOCKER" build -f "$work/Dockerfile" \
         --label "$MANAGED" \
-        --label "awesome-claude-docker.claude=$version" \
-        --label "awesome-claude-docker.recipe=$recipe" \
-        --label "awesome-claude-docker.week=$week" \
+        --label "scott.claude=$version" \
+        --label "scott.recipe=$recipe" \
+        --label "scott.week=$week" \
         --build-arg "BASE_REFRESH=$week" \
         --build-arg "REFRESH=$refresh" \
         --build-arg "CLAUDE_CODE_VERSION=$version" \
@@ -66,13 +66,16 @@ else
         -t "$IMAGE" "$context"
 fi
 
-# Earlier versions kept a separate :base tag; one complete image is enough.
-"$DOCKER" rmi "${IMAGE%%:*}:base" >/dev/null 2>&1 || true
+# One complete image is enough: drop the separate :base tag earlier versions
+# kept, and the images this project built under its previous names.
+for old in "${IMAGE%%:*}:base" great-scott:latest awesome-claude-docker:latest awesome-claude-docker:base claude-docker-x86:latest; do
+    [ "$old" = "$IMAGE" ] || "$DOCKER" rmi "$old" >/dev/null 2>&1 || true
+done
 
 # Remove only the images this installer built and has just superseded.
 "$DOCKER" image prune -f --filter "label=$MANAGED" >/dev/null
 
-if [ -e "$LAUNCHER" ] && ! grep -qE "awesome-claude-docker|claude-docker-x86" "$LAUNCHER" 2>/dev/null; then
+if [ -e "$LAUNCHER" ] && ! grep -qE "turinglabsorg/(scott|great-scott|awesome-claude-docker|claude-docker-x86)" "$LAUNCHER" 2>/dev/null; then
     backup="$LAUNCHER.pre-docker"
     [ -e "$backup" ] && backup="$backup.$(date +%Y%m%d%H%M%S)"
     mv "$LAUNCHER" "$backup" 2>/dev/null || sudo mv "$LAUNCHER" "$backup"

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# awesome-claude-docker — https://github.com/turinglabsorg/awesome-claude-docker
+# scott — https://github.com/turinglabsorg/scott
 #
 # Runs Claude Code in Docker as if it were native:
 #   - your home is bind-mounted at the SAME path and used as HOME, so Claude
@@ -17,7 +17,7 @@ PERSONAL="${CLAUDE_DOCKER_PERSONAL:-$HOME/.claude-docker}"
 # shellcheck disable=SC1091
 [ -f "$PERSONAL/env" ] && . "$PERSONAL/env"
 
-IMAGE="${CLAUDE_DOCKER_IMAGE:-awesome-claude-docker:latest}"
+IMAGE="${CLAUDE_DOCKER_IMAGE:-scott:latest}"
 DOCKER="$(command -v docker 2>/dev/null || echo /usr/local/bin/docker)"
 
 home="$(cd "$HOME" && pwd -P)"

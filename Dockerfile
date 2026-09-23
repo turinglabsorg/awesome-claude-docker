@@ -57,10 +57,10 @@ RUN (getent group "${USER_GID}" >/dev/null || groupadd -g "${USER_GID}" "${USER_
 # they are Mach-O binaries or links into Docker.app), and the CLI would pick
 # them over the image's. Give the CLI its own config dir: the host config.json
 # (registries, credential helpers) through a link, Linux plugins from here.
-RUN mkdir -p /etc/awesome-claude-docker/docker \
- && ln -s /usr/libexec/docker/cli-plugins /etc/awesome-claude-docker/docker/cli-plugins \
- && ln -s "${USER_HOME}/.docker/config.json" /etc/awesome-claude-docker/docker/config.json
-ENV DOCKER_CONFIG=/etc/awesome-claude-docker/docker
+RUN mkdir -p /etc/scott/docker \
+ && ln -s /usr/libexec/docker/cli-plugins /etc/scott/docker/cli-plugins \
+ && ln -s "${USER_HOME}/.docker/config.json" /etc/scott/docker/config.json
+ENV DOCKER_CONFIG=/etc/scott/docker
 
 ENV LANG=C.UTF-8
 # The container is removed on every exit, so an in-place update would be lost;
