@@ -119,6 +119,20 @@ claude mcp add chrome-devtools --scope user -- \
 For Playwright or Puppeteer, use the installed Chrome (`channel: "chrome"`, or
 `executablePath: "/usr/bin/google-chrome"`) with the same `--no-sandbox`.
 
+## Pasting images across the space-time continuum
+
+**Ctrl+V** pastes an image, as in the native Claude Code. The Linux build reads
+the clipboard through `xclip`, and no container can see the Mac clipboard, so
+for an interactive session on macOS the launcher starts a tiny bridge on the
+host. It listens on `127.0.0.1` only, answers only requests carrying a random
+per-session token, hands over the clipboard **image** (never text) and exits
+with the session. The `xclip` in the image is a stub that asks it. It needs
+nothing beyond `perl` and `osascript`, which ship with macOS;
+`CLAUDE_DOCKER_CLIPBOARD=0` turns it off.
+
+Dragging an image file into the terminal works too, as long as the file is
+somewhere the container can see (your home, or the launch folder).
+
 ## Docker, from inside Docker
 
 Set `CLAUDE_DOCKER_SOCKET=1` (e.g. in `~/.claude-docker/env`) and the container
@@ -137,6 +151,7 @@ reach — on purpose.
 | Variable | Default | What it does |
 |---|---|---|
 | `CLAUDE_DOCKER_SOCKET` | `0` | `1` mounts the host Docker socket |
+| `CLAUDE_DOCKER_CLIPBOARD` | `1` | `0` skips the clipboard bridge that lets Ctrl+V paste images (macOS) |
 | `CLAUDE_DOCKER_MOUNTS` | — | extra host paths to mount at the same path, space-separated |
 | `CLAUDE_DOCKER_ENV` | — | extra environment variable names to pass through, space-separated |
 | `CLAUDE_DOCKER_MASK` | — | extra paths to hide from the container (relative to your home, or absolute), space-separated |

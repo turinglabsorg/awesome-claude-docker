@@ -15,6 +15,9 @@
   - the Docker socket is mounted only when `CLAUDE_DOCKER_SOCKET=1`
   - environment variables pass through by name only (`-e NAME`), never with
     their values on the command line
+  - the clipboard bridge (macOS, interactive sessions only) listens on
+    `127.0.0.1`, requires the per-session token, serves the clipboard image
+    and never text, and exits when the session ends
 - Images: never copy credentials or config into an image, and never add a tool
   whose use needs a masked identity root. `install.sh` prunes only dangling
   images carrying the `scott.managed=1` label.
@@ -40,4 +43,9 @@
      `<tmp>` first on `PATH`), the request reaches the host server
   9. with the chrome-devtools MCP configured, `claude mcp list` reports it
      connected
+  10. with an image on the Mac clipboard, start `<tmp>/claude` in a TTY:
+      Ctrl+V shows `[Image #1]`; inside, `xclip -t image/png -o` returns
+      the PNG, a request without the token gets 404, `xclip -i` and text
+      reads fail; the bridge listens only on `127.0.0.1` and is gone after
+      the session exits
 - Code, docs and commit messages in English.

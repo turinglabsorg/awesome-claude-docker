@@ -62,6 +62,29 @@ RUN mkdir -p /etc/scott/docker \
  && ln -s "${USER_HOME}/.docker/config.json" /etc/scott/docker/config.json
 ENV DOCKER_CONFIG=/etc/scott/docker
 
+# Claude Code on Linux pastes images through xclip. This one only reads the
+# clipboard image, from the bridge the launcher starts on the Mac host
+# (SCOTT_CLIPBOARD); anything else fails as if xclip were not installed.
+COPY --chmod=755 <<'EOF' /usr/local/bin/xclip
+#!/bin/sh
+read=0 target=
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -o|-out) read=1 ;;
+        -t|-target) shift; target="${1:-}" ;;
+    esac
+    shift
+done
+if [ -n "${SCOTT_CLIPBOARD:-}" ] && [ "$read" = 1 ]; then
+    case "$target" in
+        TARGETS) exec curl -fsS --max-time 15 "$SCOTT_CLIPBOARD/targets" ;;
+        image/png) exec curl -fsS --max-time 15 "$SCOTT_CLIPBOARD/png" ;;
+    esac
+fi
+echo "xclip (scott): only reading the clipboard image is supported" >&2
+exit 1
+EOF
+
 ENV LANG=C.UTF-8
 # The container is removed on every exit, so an in-place update would be lost;
 # updates happen by rebuilding the image (re-run install.sh).

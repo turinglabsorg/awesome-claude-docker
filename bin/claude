@@ -98,6 +98,76 @@ fi
 
 [ -t 0 ] && [ -t 1 ] && args+=(-t)
 
+# Pasting images: Claude Code on Linux reads the clipboard through xclip, and
+# no container can reach the Mac clipboard. For an interactive session on macOS
+# the launcher starts a small bridge on the host loopback that hands over the
+# clipboard image (never text) to requests carrying a random token, and exits
+# with the session; the image's xclip asks it. CLAUDE_DOCKER_CLIPBOARD=0 skips it.
+if [ "$(uname -s)" = Darwin ] && [ -t 0 ] && [ -t 1 ] && [ "${CLAUDE_DOCKER_CLIPBOARD:-1}" = 1 ]; then
+    read -r -d '' bridge <<'PERL' || true
+use strict;
+use warnings;
+use File::Temp qw(tempdir);
+use IO::Select;
+use IO::Socket::INET;
+use POSIX qw(setsid);
+
+my $owner = shift;
+my $server = IO::Socket::INET->new(LocalAddr => "127.0.0.1", LocalPort => 0,
+                                   Listen => 5, ReuseAddr => 1) or exit 1;
+open my $random, "<:raw", "/dev/urandom" or exit 1;
+read $random, my $bytes, 16;
+my $token = unpack "H*", $bytes;
+defined(my $pid = fork) or exit 1;
+if ($pid) { print $server->sockport, "/$token\n"; exit 0; }
+setsid();
+open STDIN, "<", "/dev/null";
+open STDOUT, ">", "/dev/null";
+open STDERR, ">", "/dev/null";
+
+my $png = tempdir(CLEANUP => 1) . "/clipboard.png";
+my $class = "\xc2\xabclass PNGf\xc2\xbb";
+sub image {
+    unlink $png;
+    system "osascript", "-e", "set png_data to (the clipboard as $class)",
+        "-e", "set fp to open for access POSIX file \"$png\" with write permission",
+        "-e", "write png_data to fp", "-e", "close access fp";
+    open my $in, "<:raw", $png or return "";
+    local $/;
+    my $data = <$in> // "";
+    unlink $png;
+    return $data;
+}
+
+my $select = IO::Select->new($server);
+while (kill 0, $owner) {
+    $select->can_read(2) or next;
+    my $client = $server->accept or next;
+    eval {
+        local $SIG{ALRM} = sub { die "timeout\n" };
+        alarm 10;
+        my ($path) = (<$client> // "") =~ m{^GET /(\S+) };
+        while (my $line = <$client>) { last if $line =~ /^\r?\n$/ }
+        my $data = "";
+        if (defined $path && ($path eq "$token/png" || $path eq "$token/targets")) {
+            $data = image();
+            $data = "image/png\n" if length $data && $path eq "$token/targets";
+        }
+        print {$client} length $data
+            ? "HTTP/1.0 200 OK\r\nContent-Length: " . length($data) . "\r\n\r\n" . $data
+            : "HTTP/1.0 404 Not Found\r\nContent-Length: 0\r\n\r\n";
+        alarm 0;
+    };
+    close $client;
+}
+PERL
+    clipboard="$(perl -e "$bridge" "$$" 2>/dev/null || true)"
+    if [ -n "$clipboard" ]; then
+        export SCOTT_CLIPBOARD="http://host.docker.internal:$clipboard"
+        args+=(-e SCOTT_CLIPBOARD)
+    fi
+fi
+
 for extra in ${CLAUDE_DOCKER_MOUNTS:-}; do
     args+=(-v "$extra:$extra")
 done
