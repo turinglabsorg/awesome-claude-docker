@@ -317,6 +317,7 @@ PERL
     if [ -n "$endpoint" ]; then
         export SCOTT_BRIDGE="host.docker.internal:$endpoint"
         args+=(-e SCOTT_BRIDGE)
+        [ -n "${CLAUDE_DOCKER_IN_CONTAINER:-}" ] && { export CLAUDE_DOCKER_IN_CONTAINER; args+=(-e CLAUDE_DOCKER_IN_CONTAINER); }
     fi
 fi
 

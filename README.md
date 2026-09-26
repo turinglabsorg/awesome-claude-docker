@@ -140,6 +140,15 @@ stdout, stderr and the exit code make the round trip, and a Ctrl+C or a
 timeout inside stops the host process too. Variables named after the tool
 (`GH_*` for `gh`) travel along; nothing else from inside does.
 
+Sometimes a subcommand has to stay in the present: `grog up 4000` shares a
+dev server that listens *inside* the container, so it must run in here, not on
+the host. Name such subcommands in `CLAUDE_DOCKER_IN_CONTAINER` and the image's
+own copy of the tool runs them, while every other subcommand still goes home:
+
+```bash
+CLAUDE_DOCKER_IN_CONTAINER="grog:up"
+```
+
 The fine print, before you blame the flux capacitor:
 
 - A host tool runs with **your full rights on the host**, so list only what
@@ -189,6 +198,7 @@ reach — on purpose.
 |---|---|---|
 | `CLAUDE_DOCKER_SOCKET` | `0` | `1` mounts the host Docker socket |
 | `CLAUDE_DOCKER_HOST_TOOLS` | — | commands that run on the host instead of in the container, space-separated (macOS; re-run `install.sh` after changing it) |
+| `CLAUDE_DOCKER_IN_CONTAINER` | — | `tool:subcommand` pairs of host tools that run in the container instead (e.g. `grog:up`), space-separated |
 | `CLAUDE_DOCKER_CLIPBOARD` | `1` | `0` skips the clipboard bridge that lets Ctrl+V paste images (macOS) |
 | `CLAUDE_DOCKER_MOUNTS` | — | extra host paths to mount at the same path, space-separated |
 | `CLAUDE_DOCKER_ENV` | — | extra environment variable names to pass through, space-separated |

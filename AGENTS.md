@@ -20,6 +20,9 @@
     runs only the commands named in `CLAUDE_DOCKER_HOST_TOOLS` (argv, never a
     shell string), forwards only the tool's own `<TOOL>_*` variables, and
     exits when the session ends
+  - a host tool's subcommand runs in the container only when it is named in
+    `CLAUDE_DOCKER_IN_CONTAINER`, with the image's own copy of the tool, kept
+    aside in `/usr/local/lib/scott/in-container` when the stub replaced it
 - Images: never copy credentials or config into an image, and never add a tool
   whose use needs a masked identity root. `install.sh` prunes only dangling
   images carrying the `scott.managed=1` label.
@@ -58,4 +61,7 @@
       parallel calls work; `timeout 2 scott-host sleep 30` leaves no `sleep`
       on the host; only `<TOOL>_*` variables reach the tool; `claude -p` runs
       a listed tool through its Bash tool
+  12. with `CLAUDE_DOCKER_IN_CONTAINER="grog:up"`: inside, `grog up <port>`
+      runs the container's grog (a server listening in the container gets a
+      working public link), while `grog help` still runs on the host
 - Code, docs and commit messages in English.

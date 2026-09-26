@@ -47,7 +47,9 @@ else
 fi
 # Host tools: each name in CLAUDE_DOCKER_HOST_TOOLS becomes a link to the
 # image's scott-host, which runs the host's copy through the launcher's bridge.
-# Added last, so it replaces any copy of the same name installed above.
+# Added last; a copy of the same name installed above is kept aside in
+# /usr/local/lib/scott/in-container, for the subcommands that must run here
+# (CLAUDE_DOCKER_IN_CONTAINER).
 read -r -a tools <<< "${CLAUDE_DOCKER_HOST_TOOLS:-}"
 for tool in ${tools[@]+"${tools[@]}"}; do
     if ! [[ "$tool" =~ ^[A-Za-z0-9._-]+$ ]] || [ "$tool" = scott-host ]; then
@@ -60,7 +62,11 @@ if [ -n "$host_tools" ]; then
     {
         echo
         echo "# ---- host tools (CLAUDE_DOCKER_HOST_TOOLS)"
-        echo "RUN for tool in $host_tools; do ln -sf scott-host \"/usr/local/bin/\$tool\"; done"
+        echo "RUN mkdir -p /usr/local/lib/scott/in-container && for tool in $host_tools; do \\"
+        echo "      f=\"/usr/local/bin/\$tool\"; k=\"/usr/local/lib/scott/in-container/\$tool\"; \\"
+        echo "      if [ -L \"\$f\" ] && [ \"\$(readlink \"\$f\")\" != scott-host ]; then ln -sfn \"\$(readlink -f \"\$f\")\" \"\$k\"; \\"
+        echo "      elif [ -f \"\$f\" ] && [ ! -L \"\$f\" ]; then mv \"\$f\" \"\$k\"; fi; \\"
+        echo "      ln -sf scott-host \"\$f\"; done"
     } >> "$work/Dockerfile"
 fi
 recipe="$(shasum -a 256 "$work/Dockerfile" | cut -c1-12)"

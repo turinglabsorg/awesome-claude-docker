@@ -132,6 +132,9 @@ def forward_stdin(sock):
         pass
 
 
+IN_CONTAINER = "/usr/local/lib/scott/in-container"
+
+
 def main():
     tool, args = os.path.basename(sys.argv[0]), sys.argv[1:]
     if tool == "scott-host":
@@ -139,6 +142,12 @@ def main():
             sys.stderr.write("usage: scott-host <tool> [args...]\n")
             return 2
         tool, args = args[0], args[1:]
+    # Subcommands that need this container (say `grog:up`, which shares a port
+    # listening here) run the image's own copy instead of the host's.
+    local = os.path.join(IN_CONTAINER, tool)
+    wanted = os.environ.get("CLAUDE_DOCKER_IN_CONTAINER", "").split()
+    if args and "%s:%s" % (tool, args[0]) in wanted and os.access(local, os.X_OK):
+        os.execv(local, [tool] + args)
     address, _, token = os.environ.get("SCOTT_BRIDGE", "").rpartition("/")
     host, _, port = address.rpartition(":")
     if not (token and host and port.isdigit()):
